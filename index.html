@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NVIDIA EWC — 電影日登記 / Movie Day Registration</title>
+
+  <!-- Supabase SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root {
+      --nv-green: #76b900;
+      --nv-dark: #1a1a1a;
+      --nv-border: #e0e0e0;
+      --nv-red: #d32f2f;
+      --nv-orange: #f57c00;
+      --nv-blue: #1565c0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f0f0; color: #333; min-height: 100vh; }
+
+    /* ── Header ── */
+    header {
+      background: var(--nv-dark);
+      color: white;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 64px;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 14px; font-weight: 500; color: #ccc; border-left: 1px solid #444; padding-left: 16px; line-height: 1.4; }
+    header h1 small { display: block; font-size: 11px; color: #888; }
+    .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #aaa; }
+    .header-right strong { color: var(--nv-green); }
+    .logout-btn { background: none; border: 1px solid #555; color: #aaa; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .logout-btn:hover { border-color: #999; color: white; }
+
+    /* ── Layout ── */
+    main { max-width: 880px; margin: 28px auto; padding: 0 16px; }
+
+    /* ── Card ── */
+    .card { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 28px 32px; margin-bottom: 20px; }
+    .card-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .card-subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+
+    /* ── Bilingual label ── */
+    .bi { display: flex; flex-direction: column; }
+    .bi .en { font-size: 11px; color: #aaa; font-weight: 400; margin-top: 1px; }
+
+    /* ── Login ── */
+    .input-row { display: flex; gap: 10px; align-items: flex-end; }
+    .input-group { flex: 1; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 5px; }
+    input[type="text"] { width: 100%; padding: 10px 14px; border: 2px solid var(--nv-border); border-radius: 8px; font-size: 15px; outline: none; transition: border-color .2s; }
+    input[type="text"]:focus { border-color: var(--nv-green); }
+    .error-msg { color: var(--nv-red); font-size: 13px; margin-top: 8px; min-height: 18px; }
+
+    /* ── Buttons ── */
+    .btn { padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; white-space: nowrap; }
+    .btn-primary { background: var(--nv-green); color: white; }
+    .btn-primary:hover:not(:disabled) { background: #5e9500; }
+    .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-outline { background: white; color: var(--nv-green); border: 2px solid var(--nv-green); }
+    .btn-outline:hover { background: #f0f7e6; }
+    .btn-danger { background: white; color: var(--nv-red); border: 2px solid var(--nv-red); }
+    .btn-danger:hover { background: #fdecea; }
+
+    /* ── Current registration banner ── */
+    #current-reg {
+      background: linear-gradient(135deg, #f0f7e6, #e8f5d4);
+      border: 2px solid var(--nv-green);
+      border-radius: 12px;
+      padding: 22px 28px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .reg-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--nv-green); margin-bottom: 6px; }
+    .reg-main { font-size: 19px; font-weight: 700; color: var(--nv-dark); margin-bottom: 2px; }
+    .reg-venue { font-size: 13px; color: #555; margin-bottom: 2px; }
+    .reg-count { font-size: 13px; color: #777; margin-bottom: 14px; }
+    .reg-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    /* ── Location section ── */
+    .location-block { margin-bottom: 26px; }
+    .location-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .location-name { font-size: 15px; font-weight: 700; color: var(--nv-dark); }
+    .location-venue { font-size: 12px; color: #888; }
+    .location-header::after { content: ''; flex: 1; height: 1px; background: var(--nv-border); }
+
+    /* ── Session cards ── */
+    .sessions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+    .session-card {
+      border: 2px solid var(--nv-border);
+      border-radius: 10px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all .18s;
+      position: relative;
+      background: white;
+      user-select: none;
+    }
+    .session-card:hover:not(.full):not(.selected) { border-color: var(--nv-green); box-shadow: 0 4px 12px rgba(118,185,0,.15); }
+    .session-card.selected { border-color: var(--nv-green); background: #f0f7e6; }
+    .session-card.full { opacity: 0.5; cursor: not-allowed; background: #fafafa; }
+
+    .sc-movie { font-size: 12px; font-weight: 700; color: var(--nv-green); margin-bottom: 3px; }
+    .sc-movie .sc-movie-en { font-weight: 400; color: #999; font-size: 10px; display: block; }
+    .sc-date { font-size: 15px; font-weight: 700; color: var(--nv-dark); }
+    .sc-time { font-size: 12px; color: #666; margin-bottom: 10px; }
+
+    .bar-bg { height: 5px; background: #eee; border-radius: 3px; overflow: hidden; margin-bottom: 5px; }
+    .bar-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+    .cap-text { font-size: 11px; color: #999; display: flex; justify-content: space-between; }
+    .cap-rem { font-weight: 600; }
+    .cap-rem.low { color: var(--nv-orange); }
+    .cap-rem.none { color: var(--nv-red); }
+
+    .badge {
+      position: absolute; top: 8px; right: 8px;
+      font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+      color: white;
+    }
+    .badge-full { background: var(--nv-red); }
+    .badge-selected { background: var(--nv-green); }
+    .badge-mine { background: var(--nv-blue); }
+
+    /* ── Submit bar ── */
+    .submit-bar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--nv-border); }
+    .selected-info { font-size: 13px; color: #555; }
+    .selected-info strong { color: var(--nv-dark); font-size: 14px; }
+
+    /* ── Loading overlay ── */
+    .loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.35);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9998;
+      display: none;
+    }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 4px solid #fff3;
+      border-top-color: var(--nv-green);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 28px; left: 50%;
+      transform: translateX(-50%) translateY(70px);
+      background: var(--nv-dark); color: white;
+      padding: 12px 22px; border-radius: 10px; font-size: 14px;
+      opacity: 0; transition: all .3s; pointer-events: none;
+      white-space: nowrap; z-index: 9999;
+      border-left: 4px solid var(--nv-green);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Config warning ── */
+    .config-warn { background: #fff3e0; border: 1px solid #ffb74d; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; font-size: 13px; color: #6d4c41; }
+    .config-warn strong { color: #4e342e; }
+    .config-warn code { background: #ffe0b2; padding: 1px 5px; border-radius: 3px; font-family: monospace; }
+
+    /* ── Demo note ── */
+    .demo-note { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 13px; color: #2e7d32; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════ HEADER ══════════════════ -->
+<header>
+  <h1>
+    🎬 台灣福委會 電影日活動登記
+    <small>EWC Movie Day Registration — Taiwan</small>
+  </h1>
+  <div class="header-right hidden" id="header-user-area">
+    <span>員工 / Employee: <strong id="header-emp-id"></strong></span>
+    <button class="logout-btn" onclick="logout()">登出 / Logout</button>
+  </div>
+</header>
+
+<!-- ══════════════════ MAIN ══════════════════ -->
+<main>
+
+  <!-- Config warning (shown when Supabase not set up) -->
+  <div class="config-warn hidden" id="config-warn">
+    ⚙️ <strong>尚未設定 Supabase / Supabase not configured：</strong>
+    請在程式碼中填入 <code>SUPABASE_URL</code> 和 <code>SUPABASE_ANON_KEY</code>，
+    目前以瀏覽器暫存（localStorage）模擬資料。
+  </div>
+
+  <div class="demo-note" id="demo-note">
+    🧪 <strong>測試模式：</strong>每場限額設為 <strong>5 人</strong>，方便測試額滿功能。
+    正式活動前請將程式碼中 <code>capacity</code> 改回正確人數。
+    &nbsp;|&nbsp;
+    <strong>Test mode:</strong> Capacity set to <strong>5</strong> per session for testing.
+  </div>
+
+  <!-- ── LOGIN ── -->
+  <div class="card" id="login-section">
+    <div class="card-title">🎟️ 員工登入 <span style="font-weight:400;font-size:14px;color:#999">/ Employee Login</span></div>
+    <div class="card-subtitle">每位員工僅能登記一個場次。Each employee may register for one session only.</div>
+    <div class="input-row">
+      <div class="input-group">
+        <label for="emp-id-input">員工 ID / Employee ID</label>
+        <input type="text" id="emp-id-input" placeholder="例 / e.g. 101" maxlength="20"
+               onkeydown="if(event.key==='Enter') doLogin()" />
+      </div>
+      <div class="input-group">
+        <label for="emp-name-input">姓名 / Name</label>
+        <input type="text" id="emp-name-input" placeholder="例 / e.g. Jensen Huang" maxlength="50"
+               onkeydown="if(event.key==='Enter') doLogin()" />
+      </div>
+      <button class="btn btn-primary" onclick="doLogin()">登入 / Login</button>
+    </div>
+    <div class="error-msg" id="login-error"></div>
+  </div>
+
+  <!-- ── REGISTERED BANNER ── -->
+  <div id="current-reg">
+    <div class="reg-badge">✅ 登記成功 / Registration Confirmed</div>
+    <div class="reg-main" id="reg-main-text">—</div>
+    <div class="reg-venue" id="reg-venue-text">—</div>
+    <div class="reg-count" id="reg-count-text">—</div>
+    <div class="reg-actions">
+      <button class="btn btn-outline" onclick="startChange()">🔄 更改場次 / Change Session</button>
+      <button class="btn btn-danger" onclick="cancelReg()">✕ 取消登記 / Cancel</button>
+    </div>
+  </div>
+
+  <!-- ── SESSION PICKER ── -->
+  <div class="card hidden" id="picker-section">
+    <div class="card-title">📅 選擇場次 / Select a Session</div>
+    <div class="card-subtitle">請選擇一場，確認後提交。Please select one session and confirm.</div>
+
+    <!-- Hsinchu -->
+    <div class="location-block">
+      <div class="location-header">
+        <div>
+          <div class="location-name">📍 新竹 / Hsinchu</div>
+          <div class="location-venue">竹北享平方百老匯 | Broadway Cinema, Hsinchu Enjoy Square</div>
+        </div>
+      </div>
+      <div class="sessions-grid" id="hsinchu-grid"></div>
+    </div>
+
+    <!-- Taipei -->
+    <div class="location-block">
+      <div class="location-header">
+        <div>
+          <div class="location-name">📍 台北 / Taipei</div>
+          <div class="location-venue">信義威秀影城 | Vieshow Cinemas Xinyi</div>
+        </div>
+      </div>
+      <div class="sessions-grid" id="taipei-grid"></div>
+    </div>
+
+    <div class="submit-bar">
+      <div class="selected-info hidden" id="selected-info">
+        已選 Selected: <strong id="selected-label">—</strong>
+      </div>
+      <button class="btn btn-outline hidden" id="cancel-change-btn" onclick="cancelChange()">← 返回 / Back</button>
+      <button class="btn btn-primary" id="submit-btn" disabled onclick="doSubmit()">確認登記 / Confirm</button>
+    </div>
+  </div>
+
+</main>
+
+<div class="loading-overlay" id="loading"><div class="spinner"></div></div>
+<div class="toast" id="toast"></div>
+
+<!-- ══════════════════ SCRIPT ══════════════════ -->
+<script>
+// ─────────────────────────────────────────────────────────────────────
+// ★ SUPABASE 設定（建立專案後填入 / Fill in after creating project）★
+// ─────────────────────────────────────────────────────────────────────
+// 1. 前往 https://supabase.com → 建立新專案
+// 2. Project Settings → API → 複製 Project URL 和 anon/public key
+// 3. 貼入下方
+const SUPABASE_URL      = 'https://wlaysjwoqhzsoouevusx.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndsYXlzandvcWh6c29vdWV2dXN4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MzIzMjEsImV4cCI6MjA5NjUwODMyMX0.pn74EXxPxjV8KWAKGEwORrRZEuFVj3q53QPN3rZEnpY';
+
+// ─────────────────────────────────────────────────────────────────────
+// ★ SQL — 在 Supabase SQL Editor 執行以下指令建立資料表 ★
+// ─────────────────────────────────────────────────────────────────────
+/*
+create table registrations (
+  emp_id        text primary key,
+  emp_name      text,
+  session_id    text not null,
+  registered_at timestamptz default now()
+);
+alter table registrations enable row level security;
+create policy "allow_all" on registrations for all using (true) with check (true);
+*/
+
+// ─────────────────────────────────────────────────────────────────────
+// Sessions data
+// ★ 正式活動前請把 capacity 改回正確人數（新竹90 / 台北100）
+// ★ Before launch, restore capacity: Hsinchu=90, Taipei=100
+// ─────────────────────────────────────────────────────────────────────
+const SESSIONS = [
+  // Hsinchu / 新竹 — 竹北享平方百老匯
+  { id:'hc-0701-am', location:'新竹', locationEn:'Hsinchu',
+    venue:'竹北享平方百老匯', venueEn:'Broadway Cinema, Hsinchu Enjoy Square',
+    date:'7/1 (Tue)', time:'上午場 Morning', movie:'蜘蛛人', movieEn:'Spider-Man', capacity:5 },
+  { id:'hc-0702-am', location:'新竹', locationEn:'Hsinchu',
+    venue:'竹北享平方百老匯', venueEn:'Broadway Cinema, Hsinchu Enjoy Square',
+    date:'7/2 (Wed)', time:'上午場 Morning', movie:'蜘蛛人', movieEn:'Spider-Man', capacity:5 },
+  { id:'hc-0703',    location:'新竹', locationEn:'Hsinchu',
+    venue:'竹北享平方百老匯', venueEn:'Broadway Cinema, Hsinchu Enjoy Square',
+    date:'7/3 (Thu)', time:'場次 Session', movie:'奧德賽', movieEn:'Odyssey', capacity:5 },
+  { id:'hc-0704',    location:'新竹', locationEn:'Hsinchu',
+    venue:'竹北享平方百老匯', venueEn:'Broadway Cinema, Hsinchu Enjoy Square',
+    date:'7/4 (Fri)', time:'場次 Session', movie:'奧德賽', movieEn:'Odyssey', capacity:5 },
+  // Taipei / 台北 — 信義威秀
+  { id:'tp-0701-am', location:'台北', locationEn:'Taipei',
+    venue:'信義威秀影城', venueEn:'Vieshow Cinemas Xinyi',
+    date:'7/1 (Tue)', time:'上午場 Morning', movie:'蜘蛛人', movieEn:'Spider-Man', capacity:5 },
+  { id:'tp-0701-pm', location:'台北', locationEn:'Taipei',
+    venue:'信義威秀影城', venueEn:'Vieshow Cinemas Xinyi',
+    date:'7/1 (Tue)', time:'下午場 Afternoon', movie:'奧德賽', movieEn:'Odyssey', capacity:5 },
+  { id:'tp-0702-am', location:'台北', locationEn:'Taipei',
+    venue:'信義威秀影城', venueEn:'Vieshow Cinemas Xinyi',
+    date:'7/2 (Wed)', time:'上午場 Morning', movie:'蜘蛛人', movieEn:'Spider-Man', capacity:5 },
+  { id:'tp-0702-pm', location:'台北', locationEn:'Taipei',
+    venue:'信義威秀影城', venueEn:'Vieshow Cinemas Xinyi',
+    date:'7/2 (Wed)', time:'下午場 Afternoon', movie:'奧德賽', movieEn:'Odyssey', capacity:5 },
+];
+
+// ─────────────────────────────────────────────────────────────────────
+// Init Supabase or fallback to localStorage
+// ─────────────────────────────────────────────────────────────────────
+let db = null;
+const useSupabase = SUPABASE_URL !== 'YOUR_SUPABASE_URL';
+
+if (useSupabase) {
+  const { createClient } = supabase;
+  db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} else {
+  document.getElementById('config-warn').classList.remove('hidden');
+}
+
+// localStorage fallback helpers
+// reg structure: { empId: { sid: sessionId, name: empName } }
+const LS_REG   = 'ewc_reg2';
+const LS_COUNT = 'ewc_cnt';
+function lsRegs()   { return JSON.parse(localStorage.getItem(LS_REG)   || '{}'); }
+function lsCounts() { return JSON.parse(localStorage.getItem(LS_COUNT) || '{}'); }
+
+// ─────────────────────────────────────────────────────────────────────
+// DB helpers
+// ─────────────────────────────────────────────────────────────────────
+async function dbGetMyReg(empId) {
+  if (useSupabase) {
+    const { data } = await db.from('registrations').select('session_id, emp_name').eq('emp_id', empId).maybeSingle();
+    return data ? { sid: data.session_id, name: data.emp_name || '' } : null;
+  }
+  const rec = lsRegs()[empId];
+  return rec ? { sid: rec.sid, name: rec.name || '' } : null;
+}
+
+async function dbGetAllCounts() {
+  if (useSupabase) {
+    const { data } = await db.from('registrations').select('session_id');
+    const c = {};
+    (data || []).forEach(r => { c[r.session_id] = (c[r.session_id] || 0) + 1; });
+    return c;
+  }
+  return lsCounts();
+}
+
+async function dbRegister(empId, empName, newSid, oldSid) {
+  if (useSupabase) {
+    const { error } = await db.from('registrations').upsert(
+      { emp_id: empId, emp_name: empName, session_id: newSid },
+      { onConflict: 'emp_id' }
+    );
+    return !error;
+  }
+  // localStorage
+  const regs = lsRegs(); const counts = lsCounts();
+  if (oldSid && oldSid !== newSid) counts[oldSid] = Math.max(0, (counts[oldSid]||0) - 1);
+  counts[newSid] = (counts[newSid]||0) + 1;
+  regs[empId] = { sid: newSid, name: empName };
+  localStorage.setItem(LS_REG, JSON.stringify(regs));
+  localStorage.setItem(LS_COUNT, JSON.stringify(counts));
+  return true;
+}
+
+async function dbUpdateName(empId, empName) {
+  if (useSupabase) {
+    await db.from('registrations').update({ emp_name: empName }).eq('emp_id', empId);
+  } else {
+    const regs = lsRegs();
+    if (regs[empId]) { regs[empId].name = empName; localStorage.setItem(LS_REG, JSON.stringify(regs)); }
+  }
+}
+
+async function dbCancel(empId, sid) {
+  if (useSupabase) {
+    const { error } = await db.from('registrations').delete().eq('emp_id', empId);
+    return !error;
+  }
+  const regs = lsRegs(); const counts = lsCounts();
+  counts[sid] = Math.max(0, (counts[sid]||0) - 1);
+  delete regs[empId];
+  localStorage.setItem(LS_REG, JSON.stringify(regs));
+  localStorage.setItem(LS_COUNT, JSON.stringify(counts));
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────
+let currentEmpId    = null;
+let currentEmpName  = null;
+let currentSid      = null;  // already registered session
+let selectedSid     = null;  // currently selected in picker
+let isChanging      = false;
+let cachedCounts    = {};
+
+function getSession(sid) { return SESSIONS.find(s => s.id === sid); }
+function getCount(sid)   { return cachedCounts[sid] || 0; }
+
+// ─────────────────────────────────────────────────────────────────────
+// Login
+// ─────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const raw  = document.getElementById('emp-id-input').value.trim();
+  const name = document.getElementById('emp-name-input').value.trim();
+  if (!raw)  { setError('請輸入員工 ID / Please enter your Employee ID'); return; }
+  if (!/^\d{1,10}$/.test(raw)) { setError('員工 ID 只能輸入數字 / Employee ID must be numbers only'); return; }
+  if (!name) { setError('請輸入姓名 / Please enter your name'); return; }
+  setError('');
+  showLoading(true);
+  try {
+    cachedCounts = await dbGetAllCounts();
+    const existing = await dbGetMyReg(raw);
+    currentEmpId   = raw;
+    currentEmpName = name;
+    if (existing) {
+      currentSid = existing.sid;
+      // If name differs, silently update it
+      if (existing.name && existing.name !== name) {
+        await dbUpdateName(raw, name);
+      }
+    } else {
+      currentSid = null;
+    }
+    document.getElementById('login-section').classList.add('hidden');
+    document.getElementById('header-user-area').classList.remove('hidden');
+    document.getElementById('header-emp-id').textContent = `${currentEmpId} (${currentEmpName})`;
+    renderPage();
+  } catch(e) {
+    setError('連線失敗，請稍後再試 / Connection failed, please try again');
+  } finally {
+    showLoading(false);
+  }
+}
+
+function logout() {
+  currentEmpId = null; currentEmpName = null; currentSid = null; selectedSid = null; isChanging = false;
+  document.getElementById('login-section').classList.remove('hidden');
+  document.getElementById('header-user-area').classList.add('hidden');
+  document.getElementById('emp-id-input').value   = '';
+  document.getElementById('emp-name-input').value = '';
+  document.getElementById('current-reg').style.display = 'none';
+  document.getElementById('picker-section').classList.add('hidden');
+}
+
+function setError(msg) { document.getElementById('login-error').textContent = msg; }
+
+// ─────────────────────────────────────────────────────────────────────
+// Render
+// ─────────────────────────────────────────────────────────────────────
+function renderPage() {
+  if (currentSid && !isChanging) {
+    showBanner();
+    document.getElementById('picker-section').classList.add('hidden');
+  } else {
+    document.getElementById('current-reg').style.display = 'none';
+    document.getElementById('picker-section').classList.remove('hidden');
+    renderGrid('hsinchu-grid', '新竹');
+    renderGrid('taipei-grid',  '台北');
+    renderSubmitBar();
+    document.getElementById('cancel-change-btn').classList.toggle('hidden', !isChanging);
+  }
+}
+
+function showBanner() {
+  const s = getSession(currentSid);
+  if (!s) return;
+  const cnt = getCount(currentSid);
+  document.getElementById('reg-main-text').textContent  = `${s.location} / ${s.locationEn} ｜ ${s.date} ${s.time} ｜ ${s.movie} / ${s.movieEn}`;
+  document.getElementById('reg-venue-text').textContent = `📍 ${s.venue} (${s.venueEn})`;
+  document.getElementById('reg-count-text').textContent = `目前報名 / Current registrations: ${cnt} / ${s.capacity}`;
+  document.getElementById('current-reg').style.display = 'block';
+}
+
+function renderGrid(gridId, location) {
+  const list = SESSIONS.filter(s => s.location === location);
+  const el   = document.getElementById(gridId);
+  el.innerHTML = '';
+
+  list.forEach(s => {
+    const cnt     = getCount(s.id);
+    const isFull  = cnt >= s.capacity;
+    const isSel   = selectedSid === s.id;
+    const isMine  = currentSid  === s.id;
+    const pct     = Math.min(Math.round(cnt / s.capacity * 100), 100);
+    const barClr  = pct >= 100 ? '#d32f2f' : pct >= 80 ? '#f57c00' : '#76b900';
+    const rem     = s.capacity - cnt;
+    const remCls  = rem === 0 ? 'none' : rem <= 2 ? 'low' : '';
+
+    const card = document.createElement('div');
+    card.className = 'session-card' + (isFull ? ' full' : '') + (isSel ? ' selected' : '');
+    if (!isFull) card.onclick = () => selectSession(s.id);
+
+    let badge = '';
+    if (isFull)       badge = '<span class="badge badge-full">額滿 Full</span>';
+    else if (isSel)   badge = '<span class="badge badge-selected">已選 ✓</span>';
+    else if (isMine && !isChanging) badge = '<span class="badge badge-mine">已登記</span>';
+
+    card.innerHTML = `
+      ${badge}
+      <div class="sc-movie">${s.movie}<span class="sc-movie-en">${s.movieEn}</span></div>
+      <div class="sc-date">${s.date}</div>
+      <div class="sc-time">${s.time}</div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${barClr}"></div></div>
+      <div class="cap-text">
+        <span>${cnt} / ${s.capacity}</span>
+        <span class="cap-rem ${remCls}">${isFull ? '已額滿' : `剩 ${rem} 位`}</span>
+      </div>
+    `;
+    el.appendChild(card);
+  });
+}
+
+function renderSubmitBar() {
+  const infoEl = document.getElementById('selected-info');
+  const btn    = document.getElementById('submit-btn');
+  if (selectedSid) {
+    const s = getSession(selectedSid);
+    infoEl.classList.remove('hidden');
+    document.getElementById('selected-label').textContent =
+      `${s.location} ${s.date} ${s.time} — ${s.movie}`;
+    btn.disabled = false;
+  } else {
+    infoEl.classList.add('hidden');
+    btn.disabled = true;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Actions
+// ─────────────────────────────────────────────────────────────────────
+function selectSession(sid) {
+  const s = getSession(sid);
+  if (getCount(sid) >= s.capacity) return;
+  selectedSid = (selectedSid === sid) ? null : sid;
+  renderGrid('hsinchu-grid', '新竹');
+  renderGrid('taipei-grid',  '台北');
+  renderSubmitBar();
+}
+
+async function doSubmit() {
+  if (!selectedSid) return;
+  const s = getSession(selectedSid);
+
+  // Re-check capacity
+  showLoading(true);
+  try {
+    cachedCounts = await dbGetAllCounts();
+    if (getCount(selectedSid) >= s.capacity) {
+      showToast('⚠️ 此場次剛好額滿，請重選 / Session just filled up, please choose another');
+      selectedSid = null;
+      renderPage();
+      return;
+    }
+    const ok = await dbRegister(currentEmpId, currentEmpName, selectedSid, currentSid);
+    if (!ok) throw new Error('db error');
+    currentSid = selectedSid;
+    selectedSid = null;
+    isChanging = false;
+    cachedCounts = await dbGetAllCounts();
+    showToast(`✅ 登記成功！${s.location} ${s.date} ${s.time} — ${s.movie}`);
+    renderPage();
+  } catch(e) {
+    showToast('❌ 登記失敗，請再試一次 / Registration failed, please retry');
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function cancelReg() {
+  const confirmMsg = '確定要取消登記嗎？\nConfirm cancel registration?';
+  if (!confirm(confirmMsg)) return;
+  showLoading(true);
+  try {
+    await dbCancel(currentEmpId, currentSid);
+    if (!useSupabase) { /* counts already updated in dbCancel */ }
+    cachedCounts = await dbGetAllCounts();
+    currentSid = null;
+    showToast('已取消登記 / Registration cancelled');
+    renderPage();
+  } catch(e) {
+    showToast('❌ 操作失敗 / Operation failed');
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function startChange() {
+  showLoading(true);
+  cachedCounts = await dbGetAllCounts();
+  showLoading(false);
+  isChanging = true;
+  selectedSid = null;
+  renderPage();
+}
+
+function cancelChange() {
+  isChanging = false;
+  selectedSid = null;
+  renderPage();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// UI helpers
+// ─────────────────────────────────────────────────────────────────────
+function showLoading(on) {
+  document.getElementById('loading').style.display = on ? 'flex' : 'none';
+}
+
+let _toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+</script>
+</body>
+</html>

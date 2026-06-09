@@ -215,18 +215,19 @@
     <div class="card-title">🎟️ 員工登入 <span style="font-weight:400;font-size:14px;color:#999">/ Employee Login</span></div>
     <div class="card-subtitle">請使用 @nvidia.com 信箱登入，每位員工僅能登記一個場次。<br>Please use your @nvidia.com email. Each employee may register for one session only.</div>
 
-    <!-- Step 1: Email + Name -->
+    <!-- Step 1: Email -->
     <div id="login-step1">
-      <div class="input-row">
+      <div class="input-row" style="align-items:flex-end">
         <div class="input-group">
-          <label for="email-input">公司信箱 / Company Email</label>
-          <input type="text" id="email-input" placeholder="yourname@nvidia.com" maxlength="100"
-                 onkeydown="if(event.key==='Enter') sendOTP()" />
-        </div>
-        <div class="input-group">
-          <label for="emp-name-input">姓名 / Name</label>
-          <input type="text" id="emp-name-input" placeholder="例 / e.g. Jensen Huang" maxlength="50"
-                 onkeydown="if(event.key==='Enter') sendOTP()" />
+          <label for="email-input">員工帳號 / Employee Account</label>
+          <div style="display:flex;align-items:center;border:2px solid var(--nv-border);border-radius:8px;overflow:hidden;transition:border-color .2s" id="email-wrap">
+            <input type="text" id="email-input" placeholder="yourname" maxlength="60"
+                   style="border:none;outline:none;flex:1;padding:10px 0 10px 14px;font-size:15px;min-width:0"
+                   onkeydown="if(event.key==='Enter') sendOTP()"
+                   onfocus="document.getElementById('email-wrap').style.borderColor='var(--nv-green)'"
+                   onblur="document.getElementById('email-wrap').style.borderColor='var(--nv-border)'" />
+            <span style="padding:0 12px 0 4px;font-size:15px;color:#888;white-space:nowrap">@nvidia.com</span>
+          </div>
         </div>
         <button class="btn btn-primary" onclick="sendOTP()">寄送驗證碼<br><span style="font-size:11px;font-weight:400">Send OTP</span></button>
       </div>
@@ -463,7 +464,6 @@ let selectedSid     = null;
 let isChanging      = false;
 let cachedCounts    = {};
 let pendingEmail    = null;
-let pendingName     = null;
 
 function getSession(sid) { return SESSIONS.find(s => s.id === sid); }
 function getCount(sid)   { return cachedCounts[sid] || 0; }
@@ -472,18 +472,15 @@ function getCount(sid)   { return cachedCounts[sid] || 0; }
 // Auth — Email OTP
 // ─────────────────────────────────────────────────────────────────────
 async function sendOTP() {
-  const email = document.getElementById('email-input').value.trim().toLowerCase();
-  const name  = document.getElementById('emp-name-input').value.trim();
-  if (!email) { setError('請輸入公司信箱 / Please enter your company email'); return; }
-  if (!email.endsWith('@nvidia.com')) { setError('請使用 @nvidia.com 信箱 / Please use @nvidia.com email'); return; }
-  if (!name)  { setError('請輸入姓名 / Please enter your name'); return; }
+  const username = document.getElementById('email-input').value.trim().toLowerCase();
+  if (!username) { setError('請輸入員工帳號 / Please enter your account name'); return; }
+  const email = username + '@nvidia.com';
   setError('');
   showLoading(true);
   try {
     const { error } = await db.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
     if (error) throw error;
     pendingEmail = email;
-    pendingName  = name;
     document.getElementById('otp-email-display').textContent = email;
     document.getElementById('login-step1').classList.add('hidden');
     document.getElementById('login-step2').classList.remove('hidden');
@@ -503,7 +500,7 @@ async function verifyOTP() {
   try {
     const { error } = await db.auth.verifyOtp({ email: pendingEmail, token, type: 'email' });
     if (error) throw error;
-    await proceedAfterAuth(pendingEmail, pendingName);
+    await proceedAfterAuth(pendingEmail);
   } catch(e) {
     setError('驗證碼錯誤或已過期 / Invalid or expired OTP');
     console.error(e);
@@ -519,22 +516,19 @@ function backToEmail() {
   setError('');
 }
 
-async function proceedAfterAuth(email, name) {
+async function proceedAfterAuth(email) {
   cachedCounts = await dbGetAllCounts();
   const existing = await dbGetMyReg(email);
   currentEmail   = email;
-  currentEmpName = name;
+  currentEmpName = email.split('@')[0];  // use account name as display name
   if (existing) {
     currentSid = existing.sid;
-    if (existing.name && existing.name !== name) {
-      await dbUpdateName(email, name);
-    }
   } else {
     currentSid = null;
   }
   document.getElementById('login-section').classList.add('hidden');
   document.getElementById('header-user-area').classList.remove('hidden');
-  document.getElementById('header-emp-id').textContent = `${currentEmpName} (${currentEmail})`;
+  document.getElementById('header-emp-id').textContent = currentEmail;
   renderPage();
 }
 
@@ -546,7 +540,7 @@ async function logout() {
   document.getElementById('login-step2').classList.add('hidden');
   document.getElementById('header-user-area').classList.add('hidden');
   document.getElementById('email-input').value = '';
-  document.getElementById('emp-name-input').value = '';
+
   document.getElementById('otp-input').value = '';
   document.getElementById('current-reg').style.display = 'none';
   document.getElementById('picker-section').classList.add('hidden');
@@ -563,7 +557,7 @@ window.addEventListener('load', async () => {
       const email = session.user.email;
       const existing = await dbGetMyReg(email);
       const name = (existing && existing.name) ? existing.name : email.split('@')[0];
-      await proceedAfterAuth(email, name);
+      await proceedAfterAuth(email);
     }
   } catch(e) { console.error('Session restore failed:', e); }
 });

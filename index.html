@@ -188,7 +188,7 @@
     <small>EWC Movie Day Registration — Taiwan</small>
   </h1>
   <div class="header-right hidden" id="header-user-area">
-    <span>員工 / Employee: <strong id="header-emp-id"></strong></span>
+    <span><strong id="header-emp-id"></strong></span>
     <button class="logout-btn" onclick="logout()">登出 / Logout</button>
   </div>
 </header>
@@ -213,20 +213,43 @@
   <!-- ── LOGIN ── -->
   <div class="card" id="login-section">
     <div class="card-title">🎟️ 員工登入 <span style="font-weight:400;font-size:14px;color:#999">/ Employee Login</span></div>
-    <div class="card-subtitle">每位員工僅能登記一個場次。Each employee may register for one session only.</div>
-    <div class="input-row">
-      <div class="input-group">
-        <label for="emp-id-input">員工 ID / Employee ID</label>
-        <input type="text" id="emp-id-input" placeholder="例 / e.g. 101" maxlength="20"
-               onkeydown="if(event.key==='Enter') doLogin()" />
+    <div class="card-subtitle">請使用 @nvidia.com 信箱登入，每位員工僅能登記一個場次。<br>Please use your @nvidia.com email. Each employee may register for one session only.</div>
+
+    <!-- Step 1: Email + Name -->
+    <div id="login-step1">
+      <div class="input-row">
+        <div class="input-group">
+          <label for="email-input">公司信箱 / Company Email</label>
+          <input type="text" id="email-input" placeholder="yourname@nvidia.com" maxlength="100"
+                 onkeydown="if(event.key==='Enter') sendOTP()" />
+        </div>
+        <div class="input-group">
+          <label for="emp-name-input">姓名 / Name</label>
+          <input type="text" id="emp-name-input" placeholder="例 / e.g. Jensen Huang" maxlength="50"
+                 onkeydown="if(event.key==='Enter') sendOTP()" />
+        </div>
+        <button class="btn btn-primary" onclick="sendOTP()">寄送驗證碼<br><span style="font-size:11px;font-weight:400">Send OTP</span></button>
       </div>
-      <div class="input-group">
-        <label for="emp-name-input">姓名 / Name</label>
-        <input type="text" id="emp-name-input" placeholder="例 / e.g. Jensen Huang" maxlength="50"
-               onkeydown="if(event.key==='Enter') doLogin()" />
-      </div>
-      <button class="btn btn-primary" onclick="doLogin()">登入 / Login</button>
     </div>
+
+    <!-- Step 2: OTP verification -->
+    <div id="login-step2" class="hidden">
+      <div style="margin-bottom:14px;font-size:13px;color:#555;background:#f5f5f5;padding:10px 14px;border-radius:8px;">
+        📧 驗證碼已寄至 / OTP sent to: <strong id="otp-email-display" style="color:#1a1a1a"></strong><br>
+        <span style="font-size:12px;color:#888">請檢查信箱（含垃圾郵件）。Check your inbox (including spam folder).</span>
+      </div>
+      <div class="input-row">
+        <div class="input-group" style="max-width:200px">
+          <label for="otp-input">驗證碼 / OTP Code</label>
+          <input type="text" id="otp-input" placeholder="123456" maxlength="6"
+                 style="letter-spacing:6px;font-size:20px;text-align:center"
+                 onkeydown="if(event.key==='Enter') verifyOTP()" />
+        </div>
+        <button class="btn btn-primary" onclick="verifyOTP()">驗證 / Verify</button>
+        <button class="btn btn-outline" onclick="backToEmail()">← 重寄 / Resend</button>
+      </div>
+    </div>
+
     <div class="error-msg" id="login-error"></div>
   </div>
 
@@ -298,8 +321,10 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // ★ SQL — 在 Supabase SQL Editor 執行以下指令建立資料表 ★
 // ─────────────────────────────────────────────────────────────────────
 /*
+-- ★ 重新建立資料表（改用 email 為主鍵）
+drop table if exists registrations;
 create table registrations (
-  emp_id        text primary key,
+  email         text primary key,
   emp_name      text,
   session_id    text not null,
   registered_at timestamptz default now()
@@ -368,19 +393,19 @@ function lsRegs()   { return JSON.parse(localStorage.getItem(LS_REG)   || '{}');
 function lsCounts() { return JSON.parse(localStorage.getItem(LS_COUNT) || '{}'); }
 
 // ─────────────────────────────────────────────────────────────────────
-// DB helpers
+// DB helpers (email as primary key)
 // ─────────────────────────────────────────────────────────────────────
-async function dbGetMyReg(empId) {
-  if (useSupabase) {
-    const { data } = await db.from('registrations').select('session_id, emp_name').eq('emp_id', empId).maybeSingle();
+async function dbGetMyReg(email) {
+  if (useSupabase && db) {
+    const { data } = await db.from('registrations').select('session_id, emp_name').eq('email', email).maybeSingle();
     return data ? { sid: data.session_id, name: data.emp_name || '' } : null;
   }
-  const rec = lsRegs()[empId];
+  const rec = lsRegs()[email];
   return rec ? { sid: rec.sid, name: rec.name || '' } : null;
 }
 
 async function dbGetAllCounts() {
-  if (useSupabase) {
+  if (useSupabase && db) {
     const { data } = await db.from('registrations').select('session_id');
     const c = {};
     (data || []).forEach(r => { c[r.session_id] = (c[r.session_id] || 0) + 1; });
@@ -389,41 +414,40 @@ async function dbGetAllCounts() {
   return lsCounts();
 }
 
-async function dbRegister(empId, empName, newSid, oldSid) {
-  if (useSupabase) {
+async function dbRegister(email, empName, newSid, oldSid) {
+  if (useSupabase && db) {
     const { error } = await db.from('registrations').upsert(
-      { emp_id: empId, emp_name: empName, session_id: newSid },
-      { onConflict: 'emp_id' }
+      { email: email, emp_name: empName, session_id: newSid },
+      { onConflict: 'email' }
     );
     return !error;
   }
-  // localStorage
   const regs = lsRegs(); const counts = lsCounts();
   if (oldSid && oldSid !== newSid) counts[oldSid] = Math.max(0, (counts[oldSid]||0) - 1);
   counts[newSid] = (counts[newSid]||0) + 1;
-  regs[empId] = { sid: newSid, name: empName };
+  regs[email] = { sid: newSid, name: empName };
   localStorage.setItem(LS_REG, JSON.stringify(regs));
   localStorage.setItem(LS_COUNT, JSON.stringify(counts));
   return true;
 }
 
-async function dbUpdateName(empId, empName) {
-  if (useSupabase) {
-    await db.from('registrations').update({ emp_name: empName }).eq('emp_id', empId);
+async function dbUpdateName(email, empName) {
+  if (useSupabase && db) {
+    await db.from('registrations').update({ emp_name: empName }).eq('email', email);
   } else {
     const regs = lsRegs();
-    if (regs[empId]) { regs[empId].name = empName; localStorage.setItem(LS_REG, JSON.stringify(regs)); }
+    if (regs[email]) { regs[email].name = empName; localStorage.setItem(LS_REG, JSON.stringify(regs)); }
   }
 }
 
-async function dbCancel(empId, sid) {
-  if (useSupabase) {
-    const { error } = await db.from('registrations').delete().eq('emp_id', empId);
+async function dbCancel(email, sid) {
+  if (useSupabase && db) {
+    const { error } = await db.from('registrations').delete().eq('email', email);
     return !error;
   }
   const regs = lsRegs(); const counts = lsCounts();
   counts[sid] = Math.max(0, (counts[sid]||0) - 1);
-  delete regs[empId];
+  delete regs[email];
   localStorage.setItem(LS_REG, JSON.stringify(regs));
   localStorage.setItem(LS_COUNT, JSON.stringify(counts));
   return true;
@@ -432,63 +456,117 @@ async function dbCancel(empId, sid) {
 // ─────────────────────────────────────────────────────────────────────
 // State
 // ─────────────────────────────────────────────────────────────────────
-let currentEmpId    = null;
+let currentEmail    = null;
 let currentEmpName  = null;
-let currentSid      = null;  // already registered session
-let selectedSid     = null;  // currently selected in picker
+let currentSid      = null;
+let selectedSid     = null;
 let isChanging      = false;
 let cachedCounts    = {};
+let pendingEmail    = null;
+let pendingName     = null;
 
 function getSession(sid) { return SESSIONS.find(s => s.id === sid); }
 function getCount(sid)   { return cachedCounts[sid] || 0; }
 
 // ─────────────────────────────────────────────────────────────────────
-// Login
+// Auth — Email OTP
 // ─────────────────────────────────────────────────────────────────────
-async function doLogin() {
-  const raw  = document.getElementById('emp-id-input').value.trim();
-  const name = document.getElementById('emp-name-input').value.trim();
-  if (!raw)  { setError('請輸入員工 ID / Please enter your Employee ID'); return; }
-  if (!/^\d{1,10}$/.test(raw)) { setError('員工 ID 只能輸入數字 / Employee ID must be numbers only'); return; }
-  if (!name) { setError('請輸入姓名 / Please enter your name'); return; }
+async function sendOTP() {
+  const email = document.getElementById('email-input').value.trim().toLowerCase();
+  const name  = document.getElementById('emp-name-input').value.trim();
+  if (!email) { setError('請輸入公司信箱 / Please enter your company email'); return; }
+  if (!email.endsWith('@nvidia.com')) { setError('請使用 @nvidia.com 信箱 / Please use @nvidia.com email'); return; }
+  if (!name)  { setError('請輸入姓名 / Please enter your name'); return; }
   setError('');
   showLoading(true);
   try {
-    cachedCounts = await dbGetAllCounts();
-    const existing = await dbGetMyReg(raw);
-    currentEmpId   = raw;
-    currentEmpName = name;
-    if (existing) {
-      currentSid = existing.sid;
-      // If name differs, silently update it
-      if (existing.name && existing.name !== name) {
-        await dbUpdateName(raw, name);
-      }
-    } else {
-      currentSid = null;
-    }
-    document.getElementById('login-section').classList.add('hidden');
-    document.getElementById('header-user-area').classList.remove('hidden');
-    document.getElementById('header-emp-id').textContent = `${currentEmpId} (${currentEmpName})`;
-    renderPage();
+    const { error } = await db.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) throw error;
+    pendingEmail = email;
+    pendingName  = name;
+    document.getElementById('otp-email-display').textContent = email;
+    document.getElementById('login-step1').classList.add('hidden');
+    document.getElementById('login-step2').classList.remove('hidden');
   } catch(e) {
-    setError('連線失敗，請稍後再試 / Connection failed, please try again');
+    setError('寄送失敗，請稍後再試 / Failed to send OTP, please try again');
+    console.error(e);
   } finally {
     showLoading(false);
   }
 }
 
-function logout() {
-  currentEmpId = null; currentEmpName = null; currentSid = null; selectedSid = null; isChanging = false;
+async function verifyOTP() {
+  const token = document.getElementById('otp-input').value.trim();
+  if (!token || token.length < 6) { setError('請輸入6位數驗證碼 / Please enter 6-digit OTP'); return; }
+  setError('');
+  showLoading(true);
+  try {
+    const { error } = await db.auth.verifyOtp({ email: pendingEmail, token, type: 'email' });
+    if (error) throw error;
+    await proceedAfterAuth(pendingEmail, pendingName);
+  } catch(e) {
+    setError('驗證碼錯誤或已過期 / Invalid or expired OTP');
+    console.error(e);
+  } finally {
+    showLoading(false);
+  }
+}
+
+function backToEmail() {
+  document.getElementById('login-step1').classList.remove('hidden');
+  document.getElementById('login-step2').classList.add('hidden');
+  document.getElementById('otp-input').value = '';
+  setError('');
+}
+
+async function proceedAfterAuth(email, name) {
+  cachedCounts = await dbGetAllCounts();
+  const existing = await dbGetMyReg(email);
+  currentEmail   = email;
+  currentEmpName = name;
+  if (existing) {
+    currentSid = existing.sid;
+    if (existing.name && existing.name !== name) {
+      await dbUpdateName(email, name);
+    }
+  } else {
+    currentSid = null;
+  }
+  document.getElementById('login-section').classList.add('hidden');
+  document.getElementById('header-user-area').classList.remove('hidden');
+  document.getElementById('header-emp-id').textContent = `${currentEmpName} (${currentEmail})`;
+  renderPage();
+}
+
+async function logout() {
+  if (db) await db.auth.signOut();
+  currentEmail = null; currentEmpName = null; currentSid = null; selectedSid = null; isChanging = false;
   document.getElementById('login-section').classList.remove('hidden');
+  document.getElementById('login-step1').classList.remove('hidden');
+  document.getElementById('login-step2').classList.add('hidden');
   document.getElementById('header-user-area').classList.add('hidden');
-  document.getElementById('emp-id-input').value   = '';
+  document.getElementById('email-input').value = '';
   document.getElementById('emp-name-input').value = '';
+  document.getElementById('otp-input').value = '';
   document.getElementById('current-reg').style.display = 'none';
   document.getElementById('picker-section').classList.add('hidden');
 }
 
 function setError(msg) { document.getElementById('login-error').textContent = msg; }
+
+// Auto-restore session on page load
+window.addEventListener('load', async () => {
+  if (!db) return;
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (session) {
+      const email = session.user.email;
+      const existing = await dbGetMyReg(email);
+      const name = (existing && existing.name) ? existing.name : email.split('@')[0];
+      await proceedAfterAuth(email, name);
+    }
+  } catch(e) { console.error('Session restore failed:', e); }
+});
 
 // ─────────────────────────────────────────────────────────────────────
 // Render
@@ -597,7 +675,7 @@ async function doSubmit() {
       renderPage();
       return;
     }
-    const ok = await dbRegister(currentEmpId, currentEmpName, selectedSid, currentSid);
+    const ok = await dbRegister(currentEmail, currentEmpName, selectedSid, currentSid);
     if (!ok) throw new Error('db error');
     currentSid = selectedSid;
     selectedSid = null;
@@ -617,7 +695,7 @@ async function cancelReg() {
   if (!confirm(confirmMsg)) return;
   showLoading(true);
   try {
-    await dbCancel(currentEmpId, currentSid);
+    await dbCancel(currentEmail, currentSid);
     if (!useSupabase) { /* counts already updated in dbCancel */ }
     cachedCounts = await dbGetAllCounts();
     currentSid = null;

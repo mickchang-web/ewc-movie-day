@@ -472,9 +472,12 @@ function getCount(sid)   { return cachedCounts[sid] || 0; }
 // Auth — Email OTP
 // ─────────────────────────────────────────────────────────────────────
 async function sendOTP() {
-  const username = document.getElementById('email-input').value.trim().toLowerCase();
-  if (!username) { setError('請輸入員工帳號 / Please enter your account name'); return; }
-  const email = username + '@nvidia.com';
+  const raw = document.getElementById('email-input').value.trim().toLowerCase();
+  if (!raw) { setError('請輸入員工帳號 / Please enter your account name'); return; }
+  if (raw.includes('@') && !raw.endsWith('@nvidia.com')) {
+    setError('請使用 @nvidia.com 信箱 / Please use your @nvidia.com email'); return;
+  }
+  const email = raw.endsWith('@nvidia.com') ? raw : raw + '@nvidia.com';
   setError('');
   showLoading(true);
   try {
